@@ -16,6 +16,8 @@ import (
 	"github.com/robertkrimen/otto"
 	"github.com/status-im/status-go/geth/params"
 	"github.com/status-im/status-go/static"
+
+	"github.com/deoxxa/ottoext/loop"
 )
 
 var (
@@ -164,6 +166,7 @@ type TxQueueManager interface {
 // JailCell represents single jail cell, which is basically a JavaScript VM.
 type JailCell interface {
 	CellVM() *otto.Otto
+	CellLoop() *loop.Loop
 }
 
 // JailManager defines methods for managing jailed environments
@@ -181,6 +184,9 @@ type JailManager interface {
 
 	// JailCellVM returns instance of Otto VM (which is persisted w/i jail cell) by chatID
 	JailCellVM(chatID string) (*otto.Otto, error)
+
+	// JailCellVM returns instance of Otto VM (which is persisted w/i jail cell) by chatID
+	JailCellLoop(chatID string) (*loop.Loop, error)
 
 	// BaseJS allows to setup initial JavaScript to be loaded on each jail.Parse()
 	BaseJS(js string)

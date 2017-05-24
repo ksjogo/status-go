@@ -13,6 +13,10 @@ import (
 	"github.com/robertkrimen/otto"
 	"github.com/status-im/status-go/geth/common"
 	"github.com/status-im/status-go/static"
+
+	"github.com/deoxxa/ottoext/fetch"
+	"github.com/deoxxa/ottoext/loop"
+	"github.com/deoxxa/ottoext/timers"
 )
 
 const (
@@ -31,6 +35,7 @@ var (
 type JailCell struct {
 	id  string
 	vm  *otto.Otto
+	lo  *loop.Loop
 	sem *semaphore.Semaphore
 }
 
@@ -39,12 +44,17 @@ type JailCell struct {
 type Jail struct {
 	sync.RWMutex
 	requestManager *RequestManager
-	cells          map[string]common.JailCell // jail supports running many isolated instances of jailed runtime
-	baseJSCode     string                     // JavaScript used to initialize all new cells with
+
+	cells      map[string]common.JailCell // jail supports running many isolated instances of jailed runtime
+	baseJSCode string                     // JavaScript used to initialize all new cells with
 }
 
 func (cell *JailCell) CellVM() *otto.Otto {
 	return cell.vm
+}
+
+func (cell *JailCell) CellLoop() *loop.Loop {
+	return cell.lo
 }
 
 // New returns new Jail environment
@@ -62,9 +72,22 @@ func (jail *Jail) BaseJS(js string) {
 
 // NewJailCell initializes and returns jail cell
 func (jail *Jail) NewJailCell(id string) common.JailCell {
+	vm := otto.New()
+	lo := loop.New(vm)
+
+	if err := timers.Define(vm, lo); err != nil {
+		panic(err)
+	}
+
+	if err := fetch.Define(vm, lo); err != nil {
+		panic(err)
+
+	}
+
 	return &JailCell{
 		id:  id,
-		vm:  otto.New(),
+		vm:  vm,
+		lo:  lo,
 		sem: semaphore.New(1, JailCellRequestTimeout*time.Second),
 	}
 }
@@ -147,6 +170,23 @@ func (jail *Jail) JailCellVM(chatID string) (*otto.Otto, error) {
 	}
 
 	return cell.CellVM(), nil
+}
+
+// JailCellVM returns instance of Otto VM (which is persisted w/i jail cell) by chatID
+func (jail *Jail) JailCellLoop(chatID string) (*loop.Loop, error) {
+	if jail == nil {
+		return nil, ErrInvalidJail
+	}
+
+	jail.RLock()
+	defer jail.RUnlock()
+
+	cell, ok := jail.cells[chatID]
+	if !ok {
+		return nil, fmt.Errorf("cell[%s] doesn't exist", chatID)
+	}
+
+	return cell.CellLoop(), nil
 }
 
 // Send will serialize the first argument, send it to the node and returns the response.

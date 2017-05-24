@@ -3,6 +3,8 @@ package jail_test
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -248,4 +250,53 @@ func (s *JailTestSuite) TestLocalStorageSet() {
 
 	expectedResponse := `{"jsonrpc":"2.0","result":true}`
 	s.Equal(expectedResponse, response)
+}
+
+func (s *JailTestSuite) TestTimers() {
+	require := s.Require()
+	require.NotNil(s.jail)
+
+	s.jail.Parse(testChatID, ``)
+	lo, err := s.jail.JailCellLoop(testChatID)
+	require.NoError(err)
+	require.NotNil(lo)
+
+	expectedError := `Error: timeout too early`
+	err = lo.EvalAndRun(`setTimeout(function(n) {
+			if (Date.now() - n < 50) {
+			throw new Error('timeout too early');
+		}
+	}, 30, Date.now());`)
+	s.EqualError(err, expectedError)
+
+	// s.NoError(lo.EvalAndRun(`setTimeout(function(n) {
+	// 	if (Date.now() - n < 50) {
+	// 		throw new Error('timeout was called too soon');
+	// 	}
+	// }, 50, Date.now());`))
+}
+
+func (s *JailTestSuite) TestFetch() {
+	require := s.Require()
+	require.NotNil(s.jail)
+
+	s.jail.Parse(testChatID, ``)
+	lo, err := s.jail.JailCellLoop(testChatID)
+	require.NoError(err)
+	require.NotNil(lo)
+
+	m := http.NewServeMux()
+	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("oh hello"))
+	})
+	server := httptest.NewServer(m)
+	defer server.Close()
+
+	s.NoError(lo.EvalAndRun(`fetch('` + server.URL + `').then(function(r) {
+    return r.text();
+  }).then(function(d) {
+    if (! d.indexOf('hello') === 4) {
+      throw new Error('what');
+    }
+  });`))
 }
